@@ -6,3 +6,7 @@ This project takes a [modified polyclip library]() and uses it to take entire po
 However there is one major caveat to this so far, currently I have no reliable way of getting the inverse of polygon, where you have a top level polygon and other constituent polygons within the top level representing where holes are in the top level set that are occupied by another polygon, containing both layers, but if the top level polygon isn't completely filled I have no way of retrieving the unoccupied top level polygon that doesn't intersect with the other representitive layer. While what I have can represent the same polygon I want in most software, it doesn't play nice with the intersection algorithm.
 
 Other than it works pretty decent API is alright so far.
+
+#### Pictures
+![](https://user-images.githubusercontent.com/10904982/27519281-42e6b714-59be-11e7-9a60-4a897a99955a.png)
+![](https://user-images.githubusercontent.com/10904982/27519282-42ef7a02-59be-11e7-9131-f03e0fd66b28.png)
