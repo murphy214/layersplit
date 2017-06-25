@@ -7,6 +7,47 @@ However there is one major caveat to this so far, currently I have no reliable w
 
 Other than it works pretty decent API is alright so far.
 
+# Example 
+```go
+package main
+
+import (
+	l "layersplit"
+)
+
+func main() {
+	// reading in csvs files NOTE: this doesn't always have to be done
+	// reading in county csv layer struct
+	ct := l.Get_Csv("county.csv")
+	ctt := l.Make_Layer(ct, "COUNTY")
+
+	// reading in zip csv layer struct
+	zt := l.Get_Csv("zip.csv")
+	ztt := l.Make_Layer(zt, "ZIP")
+
+	// reading in state csv layer struct
+	st := l.Get_Csv("states.csv")
+	stt := l.Make_Layer(st, "STATES")
+
+	// getting the configuration struct for combining states layer and counties
+	configs := l.Config{Output: "layer", Layer1: stt, Layer2: ctt}
+
+	// from the config struct we send in our arguments and
+	// a new layer struct is returned
+	layer := l.Combine_Layers(configs)
+
+	// now using the newly created layer and the last layer to create our final output
+	// this will be written two a csv file
+	// A more cohesive processing struct or logic will probably be added later.
+	configs = l.Config{Output: "csv", Layer1: l.Combine_Layers(configs), Layer2: ztt}
+
+	// finally executing the final combine function that outputs a csv file
+	l.Combine_Layers(configs)
+}
+
+```
+
+
 #### Pictures
 ![](https://user-images.githubusercontent.com/10904982/27519281-42e6b714-59be-11e7-9a60-4a897a99955a.png)
 ![](https://user-images.githubusercontent.com/10904982/27519282-42ef7a02-59be-11e7-9131-f03e0fd66b28.png)
