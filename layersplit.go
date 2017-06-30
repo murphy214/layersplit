@@ -1,11 +1,11 @@
 package layersplit
 
 import (
-	"./polyclip"
 	"encoding/json"
 	"fmt"
+	m "github.com/murphy214/mercantile"
+	"github.com/murphy214/polyclip"
 	"math/rand"
-	m "mercantile"
 	"strings"
 	"time"
 )
@@ -82,12 +82,12 @@ func make_polygon(coords [][][]float64) polyclip.Polygon {
 			if len(i) == 2 {
 				// moving sign in 10 ** -7 pla
 				sign1 := rand.Intn(1)
-				factor1 := float64(rand.Intn(10)) * .00000001
+				factor1 := float64(rand.Intn(100)) * .00000001
 				if sign1 == 1 {
 					factor1 = factor1 * -1
 				}
 				sign2 := rand.Intn(1)
-				factor2 := float64(rand.Intn(10)) * .00000001
+				factor2 := float64(rand.Intn(100)) * .00000001
 				if sign2 == 1 {
 					factor2 = factor2 * -1
 				}

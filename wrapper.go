@@ -1,9 +1,9 @@
 package layersplit
 
 import (
-	pc "./polyclip"
 	"encoding/csv"
 	"fmt"
+	pc "github.com/murphy214/polyclip"
 	"io/ioutil"
 	"os"
 	"strconv"
