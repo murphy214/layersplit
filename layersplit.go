@@ -18,6 +18,7 @@ type Polygon struct {
 	Area       string
 	Polystring string
 	Layers     map[string]string
+	Pos        int
 }
 
 // Point represents a point in space.
@@ -104,7 +105,7 @@ func Make_Layer(polys [][]string, layername string) []Polygon {
 	layer := []Polygon{}
 
 	c := make(chan []Polygon)
-	for _, polyrow := range polys {
+	for i, polyrow := range polys {
 		polygonstrings := strings.Split(polyrow[1], "|")
 		go func(polygonstrings []string, polyrow []string, c chan<- []Polygon) {
 			templayer := []Polygon{}
@@ -113,7 +114,8 @@ func Make_Layer(polys [][]string, layername string) []Polygon {
 				polygon := get_coords_json2(polygonstring)
 				polygonc := make_polygon(polygon)
 				extrema := get_extrema_coords(polygon[0])
-				templayer = append(templayer, Polygon{Layer: layername, Polygon: polygonc, Bounds: extrema, Polystring: polygonstring, Area: string(polyrow[0])})
+				templayer = append(templayer, Polygon{Layer: layername, Polygon: polygonc, Bounds: extrema, Polystring: polygonstring, Area: string(polyrow[0]), Pos: i})
+
 			}
 			c <- templayer
 		}(polygonstrings, polyrow, c)
