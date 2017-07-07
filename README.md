@@ -7,6 +7,14 @@ However there is one major caveat to this so far, currently I have no reliable w
 
 Other than it works pretty decent API is alright so far.
 
+# Issues 
+The biggest issue that currently exists with this module is negative space. Meaning, I need to describe a polygon that I generally use complex holes to fill around the missing geometry space within a polygon. However, the way this linesplit algorithm is being used later on the down the pipeline is for creating polygon indexs, and having a polygon(s) represented by all the other polygons already drawn isn't ideal for how the index is created.
+
+It needs to be represented by a set or simple polygons representing the exact the polygon in question not the geometric equivalent of the polygon. (i.e. a square with x number of holes leaving only the polygon left to be drawn)
+
+This geometry representing negative space is pretty integral to how this algorithm is suppose to work. Imagine something like a base tile canvas and for every layer you add you divide the polygons within that layer to represent each unique set of polygon type that may occur. If this is done correctly you can build an entire point in polygon layer from every single layer you want to know information about. (i.e. one point in polygon alg. gets county,state,congressional district, etc. etc.) More importantly utilizing the negatize space not all polygons have to be within a pure hiearchy its built as its divided up.
+
+
 # Example 
 ```go
 package main
