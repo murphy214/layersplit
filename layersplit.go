@@ -19,6 +19,7 @@ type Polygon struct {
 	Polystring string
 	Layers     map[string]string
 	Pos        int
+	Properties []interface{}
 }
 
 // Point represents a point in space.
@@ -132,6 +133,37 @@ func Make_Layer(polys [][]string, layername string) []Polygon {
 	return layer
 }
 
+func Make_Layer_Properties(polys [][]string, layername string, props [][]interface{}) []Polygon {
+	layer := []Polygon{}
+
+	c := make(chan []Polygon)
+	for i, polyrow := range polys {
+		prop := props[i]
+		polygonstrings := strings.Split(polyrow[1], "|")
+		go func(polygonstrings []string, polyrow []string, prop []interface{}, c chan<- []Polygon) {
+			templayer := []Polygon{}
+			for _, polygonstring := range polygonstrings {
+
+				polygon := get_coords_json2(polygonstring)
+				polygonc := make_polygon(polygon)
+				extrema := get_extrema_coords(polygon[0])
+				templayer = append(templayer, Polygon{Layer: layername, Polygon: polygonc, Bounds: extrema, Polystring: polygonstring, Area: string(polyrow[0]), Pos: i, Properties: prop})
+
+			}
+			c <- templayer
+		}(polygonstrings, polyrow, prop, c)
+
+	}
+	for ii := 0; ii < len(polys); ii++ {
+		select {
+		case msg1 := <-c:
+			layer = append(layer, msg1...)
+
+		}
+	}
+
+	return layer
+}
 func check(poly1 Polygon, poly2 Polygon, typeval string, ch chan<- bool) {
 	if typeval == "INTERSECTION" {
 		poly1.Polygon.Construct(polyclip.INTERSECTION, poly2.Polygon)
