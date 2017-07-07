@@ -60,7 +60,7 @@ func Round(val float64, roundOn float64, places int) (newVal float64) {
 	return
 }
 
-func Make_Opp(ztt []Polygon, layername string) []l.Polygon {
+func Make_Opp(ztt []Polygon, layername string) []Polygon {
 
 	totalpolygon := pc.Polygon{}
 	for _, row := range ztt {
