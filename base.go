@@ -138,6 +138,15 @@ func Combine_Properties(map1 map[string]interface{},map2 map[string]interface{})
 	return newmap
 }
 
+
+func Copy_Feat(usera *geojson.Feature, userb *geojson.Feature) {
+
+    *userb = *usera
+    fmt.Println(&userb,&usera)
+
+
+}
+
 // taking the found polygons and returning a list of each intersected polygon
 func Make_const_polygons(first Output_Feature,finds []Output_Feature) []geojson.Feature {
 	feats := []geojson.Feature{}
@@ -146,10 +155,15 @@ func Make_const_polygons(first Output_Feature,finds []Output_Feature) []geojson.
 		// adding the the result to newlist if possible
 		if len(result) != 0 {
 
-			mymap := Combine_Properties(first.Feature.Properties,i.Feature.Properties)
+			for k,v := range first.Feature.Properties {
+				i.Feature.Properties[k] = v
+			}
  			polygons := Lint_Polygons(result)
 			for _,polygon := range polygons {
-				feats = append(feats,geojson.Feature{Properties:mymap,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"}})
+
+				mine := &geojson.Feature{Properties:i.Feature.Properties,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"}}				
+				feats = append(feats,*mine)
+
 			}
 		} 
 
@@ -177,8 +191,9 @@ func Create_Layermap(layer1 []Output_Feature,layer2 []Output_Feature) []geojson.
 		go func(i Map_Output,c chan []geojson.Feature) {
 			sema <- struct{}{}        // acquire token
 			defer func() { <-sema }() // release token
-
-			c <- Make_const_polygons(i.Key,i.Feats)
+			val := i.Key 
+			feats := i.Feats
+			c <- Make_const_polygons(val,feats)
 		}(i,c)
 	}
 
@@ -227,7 +242,7 @@ func Combine_Layers(layer1 []Output_Feature,layer2 []Output_Feature) []*geojson.
 
 	newfeats := Create_Layermap(layer1,layer2)
 	str1 := Make_String_Section(newfeats)
-	fmt.Print(newfeats[0],"imherea\n\n")
+	fmt.Print(newfeats[0:2],"imherea\n\n")
 	// getting the different values for each layer
 	newfeats = Make_Big_Both(layer1,layer22)
 	str2 := Make_String_Section(newfeats)
