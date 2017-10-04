@@ -1,6 +1,6 @@
 # layersplit
 
-**NOTE: I need to update this read me, to lazy to do it now) but have completely rewritten this example is useless lol.**
+**NOTE: I need to update this read me, to lazy to do it now but have completely rewritten this repo, this example is useless lol.**
 
 Layer split abstractions for splitting up multiple GIS polygon layers into smaller constituent polygons.
 
