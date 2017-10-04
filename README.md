@@ -1,4 +1,7 @@
 # layersplit
+
+**NOTE: I need to update this read me, to lazy to do it now) but have completely rewritten this example is useless lol.**
+
 Layer split abstractions for splitting up multiple GIS polygon layers into smaller constituent polygons.
 
 This project takes a [modified polyclip library]() and uses it to take entire polygon layers (eg. counties,zips,states) and build a hierarchy / smallest polygons from them. This is useful because often time polygon sets that you think would be completely related are sometimes not so related when expecting perfect puzzle like hierarchy. In other words, zipcodes strattle county lines,often times split evenly between them, zipcodes often times don't exist in some disparate places. So this project tries to divide the polygons of different layers into unique polygons representitve of a layer set i.e. a polygon represents a part of a zipcode, a part of a county and part of a state, all while maintaining fields. 
