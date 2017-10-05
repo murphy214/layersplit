@@ -10,28 +10,26 @@ import (
 )
 
 // creating tilemap
-func Make_Run(layer []Output_Feature,zoom int) []Output_Feature {
-	totalmap := map[m.TileID][]Output_Feature{}
+func Make_Run(layer []pc.Polygon,zoom int) []pc.Polygon {
+	totalmap := map[m.TileID][]pc.Polygon{}
 	for _,i := range layer {
-		firstpt := i.Polygon[0][0]
+		firstpt := i[0][0]
 		tileid := m.Tile(firstpt.X,firstpt.Y,zoom)
 		totalmap[tileid] = append(totalmap[tileid],i)
 	}
 
 	c := make(chan pc.Polygon,len(totalmap)) 
 	for _,v := range totalmap {
-		go func(v []Output_Feature,c chan pc.Polygon) {
+		go func(v []pc.Polygon,c chan pc.Polygon) {
 			c <- Make_Big(v)
 		}(v,c)
 	}
 
-	totaloutput := []Output_Feature{}
+	totaloutput := []pc.Polygon{}
 	for range totalmap {
-		feat := Output_Feature{Polygon:<-c}
-		if len(feat.Polygon) > 0 {
-			if len(feat.Polygon[0]) > 0 {
-				bb := feat.Polygon.BoundingBox()
-				feat.BB = m.Extrema{W:bb.Min.X,E:bb.Max.X,S:bb.Min.Y,N:bb.Max.Y}
+		feat := <-c
+		if len(feat) > 0 {
+			if len(feat[0]) > 0 {
 				totaloutput = append(totaloutput,feat)
 			}
 		}
@@ -51,16 +49,16 @@ func Make_Big2(layer []pc.Polygon) pc.Polygon {
 }
 
 // input6 is a slice of output features
-func Make_Big(layer []Output_Feature) pc.Polygon {
-	poly := layer[0].Polygon
+func Make_Big(layer []pc.Polygon) pc.Polygon {
+	poly := layer[0]
 	for _,i := range layer[1:] {
-		poly = poly.Construct(pc.UNION,i.Polygon)
+		poly = poly.Construct(pc.UNION,i)
 	}
 	return poly
 }
 
 // makes the total big polygon of a given layer recursively
-func Make_Total_Big(layer []Output_Feature) pc.Polygon {
+func Make_Total_Big(layer []pc.Polygon) pc.Polygon {
 	zoom := 12
 	newlayer := layer
 	for len(newlayer) > 100 {
@@ -81,34 +79,6 @@ func Make_Empty_Properties(props1 map[string]interface{},props2 map[string]inter
 		props2[k] = "NONE"
 	}
 	return props1,props2
-}
-
-// creates two large union polygons from each layer
-// then does each layer difference within each function to saze on memory load
-func Make_Big_Both(layer1 []Output_Feature,layer2 []Output_Feature) []geojson.Feature {
-	// getting blank maps
-	mymap1 := map[string]interface{}{}	
-	for k := range layer1[0].Feature.Properties {
-		mymap1[k] = "NONE"
-	}
-	mymap2 := map[string]interface{}{}	
-	for k := range layer2[0].Feature.Properties {
-		mymap2[k] = "NONE"
-	}
-
-	// starting polygon2
-	fmt.Print("Starting Creating Union Polygon2\n")
-	poly2 := Make_Total_Big(layer2)
-	fmt.Print("Starting Layer1 Difference\n")
-	newfeats := Difference_Layer(layer1,poly2,mymap2)
-
-	// starting polygon 1
-	fmt.Print("Starting Creating Union Polygon1\n")
-	poly1 := Make_Total_Big(layer1)
-	fmt.Print("Starting Layer2 Difference\n")
-	newfeats = append(newfeats,Difference_Layer(layer2,poly1,mymap1)...)
-
-	return newfeats
 }
 
 // getting layer size and sema size
