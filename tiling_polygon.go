@@ -97,6 +97,8 @@ func Env_Polygon(polygon *geojson.Feature, size int) map[m.TileID][]*geojson.Fea
 	// getting bds
 	bds, poly := get_extrema_coords(polygon.Geometry.Polygon)
 	properties := polygon.Properties
+	id := polygon.ID
+
 
 	// dummy values you know
 	intval := 0
@@ -181,7 +183,7 @@ func Env_Polygon(polygon *geojson.Feature, size int) map[m.TileID][]*geojson.Fea
 			for _, val := range output.Total {	
 				newgeom := geojson.Geometry{Type: "Polygon"}
 				newgeom.Polygon = val
-				newfeat := geojson.Feature{Geometry: &newgeom, Properties: properties}
+				newfeat := geojson.Feature{Geometry: &newgeom, Properties: properties,ID:id}
 				totalmap[output.ID] = append(totalmap[output.ID], &newfeat)
 
 				//totalmap[output.ID] = append(totalmap[output.ID],  &geojson.Feature{Geometry: &geojson.Geometry{Type: "Polygon",Polygon:val}, Properties: polygon.Properties})
@@ -189,6 +191,7 @@ func Env_Polygon(polygon *geojson.Feature, size int) map[m.TileID][]*geojson.Fea
 			}
 		}
 	}
+
 	return totalmap
 
 }

@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"github.com/paulmach/go.geojson"
 	m "github.com/murphy214/mercantile"
-	"github.com/murphy214/gotile/gotile"
 	pc "github.com/murphy214/polyclip"
-	//"io/ioutil"
 	"sync"
+	"math"
 )
 
 var mutex = &sync.Mutex{}
@@ -18,14 +17,86 @@ func Map_Layer(feats []*geojson.Feature, zoom int) map[m.TileID][]*geojson.Featu
 	tilemap := Make_Tilemap(&geojson.FeatureCollection{Features:feats},zoom-2)
 	tilemap = Make_Tilemap_Children(tilemap)
 	tilemap = Make_Tilemap_Children(tilemap)
-
 	return tilemap
+}
+
+// given a polygon to be tiled envelopes the polygon in corresponding boxes
+// from a polygon and a tileid return the tiles relating to the polygon 1 level lower
+func Children_Polygon(polygon *geojson.Feature, tileid m.TileID) map[m.TileID][]*geojson.Feature {
+	// getting bds
+	bd, poly := get_extrema_coords(polygon.Geometry.Polygon)
+	pt := poly[0][0]
+
+	temptileid := m.Tile(pt.X, pt.Y, int(tileid.Z+1))
+	bdtemp := m.Bounds(temptileid)
+
+	// checking to see if the polygon lies entirely within a smaller childd
+	if (bd.N <= bdtemp.N) && (bd.S >= bdtemp.S) && (bd.E <= bdtemp.E) && (bd.W >= bdtemp.W) {
+		totalmap := map[m.TileID][]*geojson.Feature{}
+		totalmap[temptileid] = append(totalmap[temptileid], polygon)
+		return totalmap
+	}
+
+	// checking to see if the polygon is encompassed within a square
+	bdtileid := m.Bounds(tileid)
+	if (math.Abs(AreaBds(bdtileid)-AreaBds(bd)) < math.Pow(.000001,2.0)) && len(poly) == 1 && len(poly[0]) == 4 {
+		//fmt.Print("here\n")
+		totalmap := map[m.TileID][]*geojson.Feature{}
+
+		tiles := m.Children(tileid)
+		for _, k := range tiles {
+			//poly := Make_Tile_Poly(k)
+			bds := m.Bounds(k)
+			poly := [][][]float64{{{bds.E, bds.N}, {bds.W, bds.N}, {bds.W, bds.S}, {bds.E, bds.S}}}
+			newgeom := geojson.Geometry{Type: "Polygon", Polygon: poly}
+
+			totalmap[k] = append(totalmap[k], &geojson.Feature{Geometry: &newgeom, Properties: polygon.Properties,ID:polygon.ID})
+		}
+
+		return totalmap
+
+	}
+
+	//fmt.Print("\r", len(polygon.Geometry.Polygon[0]))
+
+	c := make(chan Output)
+	// creating the 4 possible children tiles
+	// and sending into a go function
+	tiles := m.Children(tileid)
+	for _, k := range tiles {
+		newpoly := poly
+		go func(newpoly pc.Polygon, k m.TileID, c chan Output) {
+			newpoly2 := newpoly.Construct(pc.INTERSECTION, Make_Tile_Poly(k))
+			polys := Lint_Polygons(newpoly2)
+			total := [][][][]float64{}
+			for _, p := range polys {
+				total = append(total, Convert_Float(p))
+
+			}
+			c <- Output{Total: total, ID: k}
+		}(newpoly, k, c)
+	}
+	totalmap := map[m.TileID][]*geojson.Feature{}
+	properties := polygon.Properties
+	for range tiles {
+		output := <-c
+		if len(output.Total) > 0 {
+			for _, coord := range output.Total {
+				newgeom := geojson.Geometry{Type: "Polygon"}
+				newgeom.Polygon = coord
+				newfeat := geojson.Feature{Geometry: &newgeom, Properties: properties,ID:polygon.ID}
+				totalmap[output.ID] = append(totalmap[output.ID], &newfeat)
+			}
+		}
+	}
+
+	return totalmap
+
 }
 
 
 // makes children and returns tilemap of a first intialized tilemap
 func Make_Tilemap_Children(tilemap map[m.TileID][]*geojson.Feature) (map[m.TileID][]*geojson.Feature) {
-
 	// iterating through each tileid
 	ccc := make(chan map[m.TileID][]*geojson.Feature)
 	newmap := map[m.TileID][]*geojson.Feature{}
@@ -41,7 +112,7 @@ func Make_Tilemap_Children(tilemap map[m.TileID][]*geojson.Feature) (map[m.TileI
 			for _, i := range v {
 				go func(k m.TileID, i *geojson.Feature, cc chan map[m.TileID][]*geojson.Feature) {
 					if i.Geometry.Type == "Polygon" {
-						cc <- tile_surge.Children_Polygon(i, k)
+						cc <- Children_Polygon(i, k)
 					} else if i.Geometry.Type == "LineString" {
 						//partmap := Env_Line(i, int(k.Z+1))
 						//partmap = Lint_Children_Lines(partmap, k)
@@ -81,7 +152,7 @@ func Make_Tilemap_Children(tilemap map[m.TileID][]*geojson.Feature) (map[m.TileI
 				count += 1
 			}
 			counter = 0
-			fmt.Printf("\r[%d / %d] Tiles Complete, Size: %d       ", count2, sizetilemap, int(k.Z)+1)
+			fmt.Printf("\r[%d / %d] Tiles Complete, Size: %d           ", count2, sizetilemap, int(k.Z)+1)
 
 		}
 		count2 += 1
@@ -94,8 +165,6 @@ func Make_Tilemap_Children(tilemap map[m.TileID][]*geojson.Feature) (map[m.TileI
 	for _,v := range newmap {
 		totalsize += len(v)
 	}
-
-
 
 	return newmap
 }
@@ -124,21 +193,15 @@ func Make_Tilemap(feats *geojson.FeatureCollection, size int) map[m.TileID][]*ge
 
 	// collecting channel shit
 	totalmap := map[m.TileID][]*geojson.Feature{}
-	for range feats.Features {
+	sizetilemap := len(feats.Features)
+	for i := range feats.Features {
 		partmap := <-c
 		for k, v := range partmap {
 			totalmap[k] = append(totalmap[k], v...)
 		}
+		fmt.Printf("\r[%d / %d] Tiles Complete, Size: %d           ",i,sizetilemap,size)
 	}
 
-	// getting size of total number of features within the tilemap
-	totalsize := 0
-	for _,v := range totalmap {
-		totalsize += len(v)
-	}
-
-
-	//filemap := TileMapIO(totalmap)
 	return totalmap
 }
 
@@ -157,25 +220,38 @@ func Make_Difference_Tile(layer []*geojson.Feature,big pc.Polygon,keys []string)
 	feats := []*geojson.Feature{}
 
 	for _,idum := range layer {
+		i := DeepCopy(idum)
+
 		ipoly := Make_Polygon(idum.Geometry.Polygon)
 		result := ipoly.Construct(pc.DIFFERENCE,big)
 		polygons := Lint_Polygons(result)
 		//ii := new(geojson.Feature)
 		//ii := &i
-		i := DeepCopy(idum)
 		for _,k := range keys {
 			i.Properties[k] = "NONE"
 		}
 
 		for _,polygon := range polygons {
-			feats = append(feats,&geojson.Feature{Properties:i.Properties,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"}})
+			if len(polygon) > 0 {
+				feats = append(feats,&geojson.Feature{Properties:i.Properties,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"},ID:i.ID})
+			}
 		}
 	}
 	return feats
 }
 
+
+// differnent output for each layer differences
+type Dif_Output struct {
+	Layer1 []*geojson.Feature
+	Layer2 []*geojson.Feature
+	TileID m.TileID
+
+}
+
+
 // 
-func Make_Tile_Differences(layer1 []*geojson.Feature,layer2 []*geojson.Feature,keys1 []string,keys2 []string) []*geojson.Feature {
+func Make_Tile_Differences(layer1 []*geojson.Feature,layer2 []*geojson.Feature,keys1 []string,keys2 []string) Dif_Output {
 
 	big1 := Make_Combined(layer1)
 	big2 := Make_Combined(layer2)
@@ -187,67 +263,15 @@ func Make_Tile_Differences(layer1 []*geojson.Feature,layer2 []*geojson.Feature,k
 	//ioutil.WriteFile("gf/new.geojson",[]byte(shit),0666)
 
 
-	totalfeats2 := Make_Difference_Tile(layer1,big2,keys2)
+	totalfeats := Make_Difference_Tile(layer1,big2,keys2)
 
-	totalfeats := Make_Difference_Tile(layer2,big1,keys1)
+	totalfeats2 := Make_Difference_Tile(layer2,big1,keys1)
 
-	return append(totalfeats,totalfeats2...)
-}
-
-// combines the differences of the two layers
-func Make_Differences(tilemap1 map[m.TileID][]*geojson.Feature,tilemap2 map[m.TileID][]*geojson.Feature,keys1 []string,keys2 []string) []*geojson.Feature {
-	tilemap := map[m.TileID]string{}
-	for k := range tilemap1 {
-		tilemap[k] = ""
-	}
-	for k := range tilemap2 {
-		tilemap[k] = ""
-	}
-
-	fmt.Print("\n")
-	feats := []*geojson.Feature{}
-	c := make(chan []*geojson.Feature)
-	var sema = make(chan struct{}, 1000)
-	unreached := 0
-	// iterating through all the keys
-	for k := range tilemap {
-		go func(k m.TileID,c chan []*geojson.Feature) {
-			sema <- struct{}{}        // acquire token
-			defer func() { <-sema }() // release token
-
-			val1,ok1 := tilemap1[k]
-			val2,ok2 := tilemap2[k]
-
-			if ok1 == true && ok2 == true {
-				c <- Make_Tile_Differences(val1,val2,keys1,keys2)
-				
-			} else if ok1 == false && ok2 == false {
-				c <- []*geojson.Feature{}
-			} else if ok1 == false {
-				c <- val2
-			} else if ok2 == false {
-				c <- val1
-			} else {
-				c <- []*geojson.Feature{}
-			}
-
-		}(k,c)
-	}
-	count := 0
-	for range tilemap {
-		feats = append(feats,<-c...)
-		fmt.Printf("\r Creating Non-Intersecting Features [%d/%d]",count,len(tilemap))
-
-		count += 1
-	}
-	fmt.Print("\n",unreached,"\n")
-
-	fmt.Print("\n")
-
-
-	return feats
+	return Dif_Output{Layer1:totalfeats,Layer2:totalfeats2}
 }
 
 
-
-
+func Get_Parent(k m.TileID) m.TileID {
+	middle := get_middle(k)
+	return m.Tile(middle.X,middle.Y,int(k.Z)-1)
+}

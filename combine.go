@@ -2,10 +2,11 @@ package layersplit
 
 import (
 	pc "github.com/murphy214/polyclip"
-	"fmt"
+	//"fmt"
 	//"time"
-	"github.com/paulmach/go.geojson"
 	m "github.com/murphy214/mercantile"
+	"sort"
+	"math/rand"
 
 )
 
@@ -50,6 +51,10 @@ func Make_Big2(layer []pc.Polygon) pc.Polygon {
 
 // input6 is a slice of output features
 func Make_Big(layer []pc.Polygon) pc.Polygon {
+	if len(layer) == 1 {
+		return layer[0]
+	}
+
 	poly := layer[0]
 	for _,i := range layer[1:] {
 		poly = poly.Construct(pc.UNION,i)
@@ -57,14 +62,69 @@ func Make_Big(layer []pc.Polygon) pc.Polygon {
 	return poly
 }
 
+type reverseSort struct { 
+        sort.Interface 
+} 
+
+func (r reverseSort) Less(i,j int) bool { 
+        return r.Interface.Less(j,i) 
+} 
+
+func Reverse(x sort.Interface) sort.Interface { 
+        return reverseSort{x} 
+} 
+// input6 is a slice of output features
+func Make_Big3(layer []pc.Polygon) pc.Polygon {
+	if len(layer) == 1 {
+		return layer[0]
+	}
+
+	areamap := map[float64]pc.Polygon{}
+	keys := []float64{}
+	for _,poly := range layer {
+		if len(poly) > 0 {
+			if len(poly[0]) > 1 {			
+				bb := poly.BoundingBox()
+				newbb := m.Extrema{W:bb.Min.X,E:bb.Max.X,S:bb.Min.Y,N:bb.Max.Y}
+				area := AreaBds(newbb)
+				areamap[area] = poly
+				keys = append(keys,area)
+			}
+		}
+	}
+
+	sort.Sort(Reverse(sort.Float64Slice(keys[:]))) 
+	//fmt.Println("\n",keys,"\n")
+
+	newlayer := []pc.Polygon{}
+	for _,k := range keys {
+		newlayer = append(newlayer,areamap[k])
+	}
+	layer = newlayer
+
+
+
+	if len(layer) == 0 {
+		return pc.Polygon{}
+	}
+
+	poly := layer[0]
+	for _,i := range layer[1:] {
+		poly = poly.Construct(pc.UNION,i)
+	}
+	return poly
+}
+
+
+
 // makes the total big polygon of a given layer recursively
 func Make_Total_Big(layer []pc.Polygon) pc.Polygon {
-	zoom := 12
+	zoom := 14
 	newlayer := layer
-	for len(newlayer) > 100 {
+	for len(newlayer) > 4 {
 		newlayer = Make_Run(newlayer,zoom)
-		fmt.Printf("Creating Union Polygon Size: %d, Zoom: %d\n",len(newlayer),zoom)
-		zoom = zoom - 2
+		//fmt.Printf("Creating Union Polygon Size: %d, Zoom: %d\n",len(newlayer),zoom)
+		zoom = zoom - 1
 	}
 
 	return Make_Big(newlayer)
@@ -87,46 +147,18 @@ func Get_Sema_Size(sizelayer int) int {
 	return semasize
 }
 
-
-// given a layer and a total union polygon gets the given difference of the layer
-// so taht properties can be maintained for each specific polygon
-func Difference_Layer(layer []Output_Feature,poly pc.Polygon,mymap map[string]interface{}) []geojson.Feature {
-	totalfeats := []geojson.Feature{}
-	size := len(layer)
-	c := make(chan []geojson.Feature,len(layer))
-	semasize := Get_Sema_Size(size)
-	var sema = make(chan struct{}, semasize)
-	for _,i := range layer {
-		go func(i Output_Feature,c chan []geojson.Feature) {	
-			sema <- struct{}{}        // acquire token
-			defer func() { <-sema }() // release token
-
-			feats := []geojson.Feature{}	
-			result := i.Polygon.Construct(pc.DIFFERENCE,poly)
-			polygons := Lint_Polygons(result)
-			newmap := Combine_Properties(i.Feature.Properties,mymap)
-			for _,polygon := range polygons {
-				feats = append(feats,geojson.Feature{Properties:newmap,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"}})
-			}
-			c <- feats
-		}(i,c)
-
+// gets a random point
+func Random_Point(pt pc.Point) pc.Point {
+	sign1 := rand.Intn(2)
+	factor1 := float64(rand.Intn(1000)) * .0000000001
+	if sign1 == 1 {
+		factor1 = factor1 * -1
+	}
+	sign2 := rand.Intn(2)
+	factor2 := float64(rand.Intn(1000)) * .0000000001
+	if sign2 == 1 {
+		factor2 = factor2 * -1
 	}
 
-	// collecting features 
-	count := 0
-	total := 0
-	for range layer {
-		totalfeats = append(totalfeats, <-c...)
-		count += 1
-		if count == semasize {
-			total += semasize
-			count = 0
-			fmt.Printf("[%d/%d]\n",total,size)
-
-		}
-
-	}
-	return totalfeats
+	return pc.Point{X:pt.X+factor1,Y:pt.Y+factor2}
 }
-

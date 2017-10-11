@@ -5,8 +5,9 @@ import (
 	pc "github.com/murphy214/polyclip"
 	m "github.com/murphy214/mercantile"
 	"fmt"
-	"time"
 	"math/rand"
+	g "github.com/murphy214/geobuf"
+	"io/ioutil"
 )
 
 // structure for creaitng output
@@ -28,26 +29,16 @@ type Map_Output struct {
 	Feats []Output_Feature
 }
 
-
-
 func DeepCopy(a *geojson.Feature) *geojson.Feature {
 	mymap := map[string]interface{}{}
 	ehmap := a.Properties
 	for k,v := range ehmap {
 		mymap[k] = v
 	}
-
-
-
 	geometry := &geojson.Geometry{}
 	*geometry = *a.Geometry
-
-
-	aa := &geojson.Feature{Properties:mymap,Geometry:geometry}
-
+	aa := &geojson.Feature{Properties:mymap,Geometry:geometry,ID:a.ID}
 	return aa
-	
-
 }
 
 // creates a pc polygon
@@ -59,14 +50,33 @@ func Make_Polygon(coords [][][]float64) pc.Polygon {
 
 		for _, i := range coord {
 			if len(i) >= 2 {
+				thing2.Add(pc.Point{X: i[0], Y: i[1]})
+			}
+		}
+		if len(thing2) >= 2 {
+			things.Add(thing2)
+		}
+	}
+	return things
+}
+
+// creates a pc polygon
+func Make_Polygon2(coords [][][]float64) pc.Polygon {
+	thing2 := pc.Contour{}
+	things := pc.Polygon{}
+	for _, coord := range coords {
+		thing2 = pc.Contour{}
+
+		for _, i := range coord {
+			if len(i) >= 2 {
 				// moving sign in 10 ** -7 pla
 				sign1 := rand.Intn(1)
-				factor1 := float64(rand.Intn(100)) * .00000001
+				factor1 := float64(rand.Intn(100)) * .0000000001
 				if sign1 == 1 {
 					factor1 = factor1 * -1
 				}
 				sign2 := rand.Intn(1)
-				factor2 := float64(rand.Intn(100)) * .00000001
+				factor2 := float64(rand.Intn(100)) * .0000000001
 				if sign2 == 1 {
 					factor2 = factor2 * -1
 				}
@@ -81,57 +91,34 @@ func Make_Polygon(coords [][][]float64) pc.Polygon {
 	return things
 }
 
-// gets the size of a coord
-func Get_Size(coords [][][] float64) int {
-	total := 0
-	for _,i := range coords {
-		total += len(i)
-	}
-	return total
+// reads a geojson file and fuzzes the coordinate values so they wont interfere with others
+func Read_Geojson(filename string) *geojson.FeatureCollection {	
+	e, _ := ioutil.ReadFile(filename)
+	fc, _ := geojson.UnmarshalFeatureCollection(e)
+	return Make_Fuzz(fc)
 }
- 
 
-// function for splitting up large features into small oens
-func Split_Large_Features(fc *geojson.FeatureCollection) *geojson.FeatureCollection {
-	newlist := []*geojson.Feature{}
-	newlist2 := []*geojson.Feature{}
-
-	for _,i := range fc.Features {
-		coords := i.Geometry.Polygon
-		if Get_Size(coords) > 1000 {
-			newlist = append(newlist,i)
-		} else {
-			newlist2 = append(newlist2,i)
-		}
+// fuzzes the input feature collection
+func Make_Fuzz(fc *geojson.FeatureCollection) *geojson.FeatureCollection {
+	for ii,i := range fc.Features {
+		fc.Features[ii].Geometry.Polygon = Convert_Float(Make_Polygon2(i.Geometry.Polygon))
 	}
-
-	newmap := Map_Layer(newlist,8)
-
-	newlist = []*geojson.Feature{}
-	for _,i := range newmap {
-		newlist = append(newlist,i...)
-	}
-	newlist = append(newlist,newlist2...)
-
-	fc.Features = newlist
 	return fc
 }
 
-
-
-
 // creates a structure that will be representitive of a layer
-func Make_Structs(gjson *geojson.FeatureCollection,prefix string) Layer {
-	gjson = Split_Multi(gjson)
-	gjson = Split_Large_Features(gjson)
+func Make_Structs_Fuzz(gjson []*geojson.Feature,fuzzbool bool) Layer {
 	c := make(chan Output_Feature)
-	for _,i := range gjson.Features {
+	for _,i := range gjson {
 		go func(i *geojson.Feature,c chan Output_Feature) {
-			if prefix != "NONE" {
-				i.Properties = Add_Prefix(i.Properties,prefix)
+			var feat Output_Feature
+			poly := Make_Polygon_Round(i.Geometry.Polygon)
+			if fuzzbool == true {
+				feat = Output_Feature{Polygon:poly,Feature:i}
+			} else {
+				feat = Output_Feature{Polygon:poly,Feature:i}
 			}
-			feat := Output_Feature{Polygon:Make_Polygon(i.Geometry.Polygon),Feature:i}
-			bb := feat.Polygon.BoundingBox()
+			bb := poly.BoundingBox()
 			feat.BB = m.Extrema{W:bb.Min.X,E:bb.Max.X,S:bb.Min.Y,N:bb.Max.Y}
 			c <- feat
 		}(i,c)
@@ -140,7 +127,7 @@ func Make_Structs(gjson *geojson.FeatureCollection,prefix string) Layer {
 	bbs := []m.Extrema{}
 	feats := []*geojson.Feature{}
 	polygons := []pc.Polygon{}
-	for range gjson.Features {
+	for range gjson {
 		val := <- c
 		if len(val.Polygon) > 0 {
 			if len(val.Polygon[0]) > 0 {
@@ -152,6 +139,38 @@ func Make_Structs(gjson *geojson.FeatureCollection,prefix string) Layer {
 	}
 
 	return Layer{Features:feats,BBs:bbs,Polygons:polygons}
+}
+
+func Ensure_Round_Polygon(coords [][][]float64) [][][]float64  {
+	new_polygon := [][][]float64{}
+	for _,cont := range coords {
+		new_contour := [][]float64{}
+		for _,point := range cont { 
+			point[0] = Round(point[0],.5,6)
+			point[1] = Round(point[1],.5,6)
+			new_contour = append(new_contour,point)
+		}
+		new_polygon = append(new_polygon,new_contour)
+	}
+	return new_polygon
+}
+
+
+
+// creates a structure that will be representitive of a layer
+func Make_Structs(gjson *geojson.FeatureCollection,prefix string) []*geojson.Feature {
+	gjson = Split_Multi(gjson)
+	newlist := []*geojson.Feature{}
+	for ii,i := range gjson.Features {
+		i.ID = ii
+		if prefix != "NONE" {
+			i.Properties = Add_Prefix(i.Properties,prefix)
+		}
+		i.Geometry.Polygon = Ensure_Round_Polygon(i.Geometry.Polygon)
+		newlist = append(newlist,i)
+	}
+
+	return newlist
 }
 
 // structure for finding overlapping values
@@ -167,7 +186,7 @@ func Overlapping_1D(box1min float64,box1max float64,box2min float64,box2max floa
 
 // returns a boolval for whether or not the bb intersects
 func Intersect(bdsref m.Extrema,bds m.Extrema) bool {
-	if Overlapping_1D(bdsref.W-.0000001,bdsref.E+.0000001,bds.W-.0000001,bds.E+.0000001) && Overlapping_1D(bdsref.S-.0000001,bdsref.N+.0000001,bds.S-.0000001,bds.N+.0000001) {
+	if Overlapping_1D(bdsref.W,bdsref.E,bds.W,bds.E) && Overlapping_1D(bdsref.S,bdsref.N,bds.S,bds.N) {
 		return true
 	} else {
 		return false
@@ -208,59 +227,129 @@ func Combine_Properties(map1 map[string]interface{},map2 map[string]interface{})
 }
 
 
-func Copy_Feat(usera *geojson.Feature, userb *geojson.Feature) {
-
-    *userb = *usera
-    fmt.Println(&userb,&usera)
-
-
+// writing Write_Sequential shit bruh
+func Write_Sequential(feats []*geojson.Feature) []byte {
+	bytevals := []byte{}
+	for _,feat := range feats {
+		bytevals = append(bytevals,g.Write_Feature(feat)...)
+	}	
+	return bytevals
 }
 
-// 
-func Filter_FC(fc *geojson.FeatureCollection,keys []string) *geojson.FeatureCollection {
-	for ii,i := range fc.Features {
-		mymap := map[string]interface{}{}
-		for _,k := range keys {
-			mymap[k] = i.Properties[k]
+
+// creates a point map from the "first" polygon
+func Make_Point_Map(polygon pc.Polygon) map[pc.Point]string {
+	newmap := map[pc.Point]string{}
+	for _,cont := range polygon {
+		for _,pt := range cont { 
+			newmap[pt] = ""
 		}
-		i.Properties = mymap
-		fc.Features[ii] = i
 	}
-	return fc
+	return newmap
 }
 
+// this function covers the rare corner case in which a triangle 
+// has one of its point exactly on the same point as a point within first polygon
+// we will solve this corner case by randomizing the point that lies on the same alignment.
+// the point will be OUTSIDE the outer contour for the reason that if there is 
+// is an intersection it will be from another of the 3 points and this point wont matther
+func Check_Triangle(polygon pc.Polygon,newmap map[pc.Point]string,outercont pc.Contour) pc.Polygon {	
+	newpolygon := pc.Polygon{}
+	newcont := pc.Contour{}
+	for _,pt := range polygon[0] {
+		newcont.Add(pt)
+		_,ok := newmap[pt]
+		if ok == true {	
+			withinbool := false
+			var newpt pc.Point
+			for withinbool == false {
+				newpt = Random_Point(pt)
+				withinbool = outercont.Contains(newpt)
+			}
+			newcont[len(newcont)-1] = newpt
+		}
+		withinbool := outercont.Contains(pt)
+		if withinbool == true {
+			newpt := Random_Point(pt)
+			newcont.Add(newpt)
+		}
 
+	}
+	newpolygon.Add(newcont)	
+	return newpolygon
+}
 
+// Lints a corner case trangle
+func Lint_Triangle(polygon pc.Polygon,first pc.Polygon,mymap map[pc.Point]string) pc.Polygon {
+	first_contour := first[0]
+	totalbool := false
+	for _,point := range polygon[0] {
 
+		withinbool := first_contour.Contains(point)
+		_,ok := mymap[point]
+		if withinbool == true && ok == false {
+			totalbool = true
+		}
+	}
+	if totalbool == false {
+		polygon = pc.Polygon{}
+	} else {
+		polygon = Check_Triangle(polygon,mymap,first[0])
+	}
+	return polygon
+}
 
 
 // taking the found polygons and returning a list of each intersected polygon
 func Make_const_polygons(layer Layer) []*geojson.Feature {
+	debug := false
+	if debug == true {
+		ioutil.WriteFile("c.buf",Write_Sequential(layer.Features),0666)
+	}
+
 	first := layer.Polygons[0]
 	first_feature := layer.Features[0]
 	layer.Features = layer.Features[1:]
 	layer.BBs = layer.BBs[1:]
 	layer.Polygons = layer.Polygons[1:]
+	firstmap := Make_Point_Map(first)
+
+	debug2 := false
+	//var sema = make(chan struct{}, 1)
 
 	c := make(chan []*geojson.Feature)
 	for i, val := range layer.Features {
 		go func(i int,val *geojson.Feature,c chan []*geojson.Feature) {
+			//sema <- struct{}{}        // acquire token
+			//defer func() { <-sema }() // release token
+
 			tempfeats := []*geojson.Feature{}
 			newpoly := layer.Polygons[i]
 			feat := DeepCopy(val)
+
+			if len(newpoly) == 1 && len(newpoly[0]) == 3 {
+				//fmt.Println("shit")
+				newpoly = Lint_Triangle(newpoly,first,firstmap)
+			}
+
+			// debugging shit
+			if debug2 == true {
+				fc := &geojson.FeatureCollection{Features:[]*geojson.Feature{val,first_feature}}
+				shit,_ := fc.MarshalJSON()
+				ioutil.WriteFile("gf/a.geojson",[]byte(shit),0666)
+			}
+
 			result := first.Construct(pc.INTERSECTION, newpoly)
 			// adding the the result to newlist if possible
 			if len(result) != 0 {
-
 				for k,v := range first_feature.Properties {
 					feat.Properties[k] = v
 				}
+
 	 			polygons := Lint_Polygons(result)
 				for _,polygon := range polygons {
-
-					mine := &geojson.Feature{Properties:feat.Properties,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"}}				
+					mine := &geojson.Feature{Properties:feat.Properties,Geometry:&geojson.Geometry{Polygon:Convert_Float(polygon),Type:"Polygon"},ID:feat.ID}				
 					tempfeats = append(tempfeats,mine)
-
 				}
 			} 
 			c <- tempfeats
@@ -269,44 +358,12 @@ func Make_const_polygons(layer Layer) []*geojson.Feature {
 
 	feats := []*geojson.Feature{}
 	for range layer.Features {
+		//fmt.Println(i,len(layer.Features))
 		feats = append(feats,<-c...)
 	}
 
-
-
 	return feats
 }
-
-
-func check(i Layer, ch chan<- bool) {
-	Make_const_polygons(i)
-	ch <- true
-}
-
-func IsReachable(i Layer) bool {
-	ch := make(chan bool, 2)
-	go check(i, ch)
-
-	time.AfterFunc(time.Second*25, func() { ch <- false })
-	return <-ch
-}
-
-func check2(layer1 []*geojson.Feature,layer2 []*geojson.Feature,keys1 []string,keys2 []string,ch chan<- bool) {
-	Make_Tile_Differences(layer1,layer2,keys1,keys2)
-	ch <- true
-}
-
-
-
-
-func IsReachable2(layer1 []*geojson.Feature,layer2 []*geojson.Feature,keys1 []string,keys2 []string) bool {
-	ch := make(chan bool, 2)
-	go check2(layer1,layer2,keys1,keys2, ch)
-
-	time.AfterFunc(time.Second*45, func() { ch <- false })
-	return <-ch
-}
-
 
 // creates an entirely new feature map
 func Create_Layermap(layer1 Layer,layer2 Layer) []*geojson.Feature {
@@ -314,9 +371,7 @@ func Create_Layermap(layer1 Layer,layer2 Layer) []*geojson.Feature {
 
 	// creating the new struct that is more lean and 
 	// can be sent into a go routine
-
 	var sema2 = make(chan struct{}, 2000)
-	fmt.Println()
     mapthing := make([]Layer,len(layer1.BBs))
     cc := make(chan Layer)
 	for ii := range layer1.BBs {
@@ -350,59 +405,41 @@ func Create_Layermap(layer1 Layer,layer2 Layer) []*geojson.Feature {
 	for range layer1.BBs {
 		mapthing[count] = <-cc
 		count += 1
-		fmt.Printf("\r Mappingshit [%d/%d]",count,len(layer1.BBs))
+		fmt.Printf("\rMappingshit [%d/%d]           ",count,len(layer1.BBs))
 	}
-
-	fmt.Println()
 
 
 	// creating channel and sending output
 	c := make(chan []*geojson.Feature,len(mapthing))
-	var sema = make(chan struct{}, 200)
-	unreached := 0
+	var sema = make(chan struct{}, 250)
 	for _,i := range mapthing {
 		go func(i Layer,c chan []*geojson.Feature) {
 			sema <- struct{}{}        // acquire token
 			defer func() { <-sema }() // release token
 
-			c <- Make_const_polygons(i)
-
-			//c <- Make_const_polygons(i)
+			eh := Make_const_polygons(i)
+			//fmt.Println(len(eh))
+			if len(eh) > 0 {
+				c <- eh
+			} else {
+				c <- []*geojson.Feature{}
+			}
 		}(i,c)
 	}	
 
 	// collecting output from channel
 	for i := range mapthing {
 		total = append(total,<-c...)
-		fmt.Printf("\r Creating Intersecting Features [%d/%d]",i,len(mapthing))
+		fmt.Printf("\rCreating Intersecting Features [%d/%d]           ",i,len(mapthing))
 	}
-	fmt.Println("\n",unreached,"\n")
-
-	fmt.Print("\n\n")
 	return total
 }
 
 
-// creates the string section
-func Make_String_Section(newfeats []geojson.Feature) string {
-	// creating feature from pointers
-	newfeats2 := make([]*geojson.Feature,len(newfeats))
-	for ii,i := range newfeats {
-		newfeats2[ii] = &geojson.Feature{Geometry:i.Geometry,Properties:i.Properties}
-	}
-
-	// creatting string
-	fc := &geojson.FeatureCollection{Features:newfeats2}
-	shit2,_ := fc.MarshalJSON()
-	shit2str := string(shit2[40:len(shit2)-2])
-	
-	return shit2str
-}
-
 // makes sure the smaller layer is always layer1
 // this makes the bounding box alg more effecient.
-func Fix_Layers(layer1 Layer,layer2 Layer) (Layer,Layer) {
-	if len(layer1.BBs) > len(layer2.BBs) {
+func Fix_Layers(layer1 []*geojson.Feature,layer2 []*geojson.Feature) ([]*geojson.Feature,[]*geojson.Feature) {
+	if len(layer1) > len(layer2) {
 		dummy := layer2 
 		layer2 = layer1
 		layer1 = dummy
@@ -413,35 +450,42 @@ func Fix_Layers(layer1 Layer,layer2 Layer) (Layer,Layer) {
 
 // given two layer data structures creates a new set of geojson features from 
 // the output i.e. a new combined layer
-func Combine_Layers(layer1 Layer,layer2 Layer,difference_bool bool) *geojson.FeatureCollection {
+func Combine_Layers(layer1 []*geojson.Feature,layer2 []*geojson.Feature) []*geojson.Feature {
 	// fixing layers so that layer1 is always the smalller layer
 	layer1,layer2 = Fix_Layers(layer1,layer2)
 
+	size_before1 := len(layer1)
+	size_before2 := len(layer2)
+
+	feats1,feats2 := Make_Differences(layer1,layer2)
+
+	newlayer1 := Make_Structs_Fuzz(layer1,true)
+	newlayer2 := Make_Structs_Fuzz(layer2,true)
+
 	// creating the intersection part
-	feat := Create_Layermap(layer1,layer2)
+	feat := Create_Layermap(newlayer1,newlayer2)
+	size_intersection := len(feat)
+	feat = append(feat,feats1...)
+	feat = append(feat,feats2...)
 
-	// getting teh keys in each layer
-	var keys1,keys2 []string
-	for k := range layer1.Features[0].Properties {
-		keys1 = append(keys1,k)
-	}
-	for k := range layer2.Features[0].Properties {
-		keys2 = append(keys2,k)
-	}
+	fmt.Printf("\nLayer1 Input Size: %d\nLayer2 Input Size: %d\n\tLayer1 Output Difference Size: %d\n\tLayer2 Output Difference Size: %d\n\tIntersection Output Size: %d\nTotal Output Size: %d\n",size_before1,size_before2,len(feats1),len(feats2),size_intersection,len(feat))
 
-	// mapping each layer
-	if difference_bool == true {
+	return feat
 
-		layer1map := Map_Layer(layer1.Features,10)
-		fmt.Println("\nlayer1 map complete")
+}
 
-		layer2map := Map_Layer(layer2.Features,10)
-		fmt.Println("\nlayer2 map complete")
-		
-		// finally gettting teh differences between each layer
-		feat = append(feat,Make_Differences(layer1map,layer2map,keys1,keys2)...)
-		fmt.Print("herea.")
-	}
-	return &geojson.FeatureCollection{Features:feat}
+
+
+// given two layer data structures creates a new set of geojson features from 
+// the output i.e. a new combined layer
+func Combine_Layers2(layer1 []*geojson.Feature,layer2 []*geojson.Feature) []*geojson.Feature {
+	// fixing layers so that layer1 is always the smalller layer
+	layer1,layer2 = Fix_Layers(layer1,layer2)
+
+
+	feat1,feat2 := Make_Differences(layer1,layer2)
+
+	
+	return append(feat1,feat2...)
 
 }
